@@ -12,10 +12,10 @@ uv add -r requirements.txt
 ```
 Please do set up virtual environments accordingly to avoid dependency version control problem. Let me know if there is any incompatibility that I am not aware of.
 
-3. Please work within your own branch as a starting point (named accordingly with your initials given in the team allocation sheet) to avoid version confliction. We can merge the code later. Do backup the code actively!
+3. Please work within your own branch as a starting point (named accordingly with your initials given in the team allocation sheet) to avoid version confliction. We can merge the code later. \Do backup the code actively!
 
 4. Useful websites
-   · [uv][https://docs.astral.sh/uv/]
-   · [XGBoost][https://xgboost.readthedocs.io/en/stable/]
-   · [Pandas][https://pandas.pydata.org/docs/user_guide/index.html]
+   · [uv][https://docs.astral.sh/uv/] \
+   · [XGBoost][https://xgboost.readthedocs.io/en/stable/] \
+   · [Pandas][https://pandas.pydata.org/docs/user_guide/index.html] \
    · [yfinance][https://ranaroussi.github.io/yfinance/]
