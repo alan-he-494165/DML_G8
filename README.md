@@ -10,4 +10,6 @@ uv venv venv_name
 ```
 uv add -r requirements.txt
 ```
-Please do set up virtual environments accordingly to avoid dependency version control problem. Let me know if there is any incompatibility that I am not aware of
+Please do set up virtual environments accordingly to avoid dependency version control problem. Let me know if there is any incompatibility that I am not aware of.
+
+3. Please work within your own branch as a starting point (named accordingly with your initials given in the team allocation sheet) to avoid version confliction. We can merge the code later. Do backup the code actively!
