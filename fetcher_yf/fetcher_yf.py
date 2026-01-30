@@ -130,5 +130,6 @@ class YFFetcher:
 
         return cached.subset(start_date, end_date)
 
-test = Ticker_Day.from_yf('AAPL', '2023-01-01', '2023-01-10')
-print(test.high)
+if __name__ == "__main__":
+    test = Ticker_Day.from_yf('AAPL', '2021-01-01', '2025-12-31')
+    print(test.high)
