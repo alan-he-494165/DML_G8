@@ -22,6 +22,34 @@ Please do set up virtual environments accordingly to avoid dependency version co
    git merge origin main
    ```
    c) Do NOT merge anything into branch unless you are superconfident at early-stage of the project. Do NOT merge anything into branch without discussion with others at late stage of the project
+## fetcher_yf Module
+
+A stock data fetcher with persistent caching. Fetches OHLCV data from Yahoo Finance and caches it locally to avoid repeated downloads.
+
+### Usage
+```python
+from fetcher_yf import Ticker_Day
+
+# Fetch AAPL data (downloads and caches)
+data = Ticker_Day.from_yf('AAPL', '2023-01-01', '2023-12-31')
+
+# Access data
+print(data.date)    # List of dates
+print(data.high)    # High prices
+print(data.low)     # Low prices
+print(data.open)    # Open prices
+print(data.close)   # Close prices
+print(data.volume)  # Volume
+
+# Force refresh (ignore cache)
+data = Ticker_Day.from_yf('AAPL', '2023-01-01', '2023-12-31', force_refresh=True)
+```
+
+### Cache Behavior
+- Cache stored in `cache/` directory as `{ticker}.pkl`
+- Only fetches missing date ranges from Yahoo Finance
+- Automatically merges new data with cached data
+
 5. Useful websites
    · [uv][https://docs.astral.sh/uv/] \
    · [XGBoost][https://xgboost.readthedocs.io/en/stable/] \
