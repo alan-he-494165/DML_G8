@@ -7,6 +7,39 @@ import os
 CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'cache')
 
 class Ticker_Day:
+    """
+    ARUMENTS
+    --------
+    symbol : str
+        Ticker symbol.
+    date : list of pd.Timestamp
+        List of dates.
+    high : list of float
+        List of high prices.
+    low : list of float
+        List of low prices.
+    open : list of float
+        List of open prices.
+    close : list of float
+        List of close prices.
+    volume : list of int
+        List of volumes.
+    METHODS
+    -------
+    merge(other)
+        Merge data from another Ticker_Day, removing duplicates and sorting by date.
+    subset(start_date, end_date)
+        Return a new Ticker_Day with only dates in the given range.
+    from_yf(symbol, start_date, end_date, force_refresh=False)
+        Fetch data from Yahoo Finance using YFFetcher.
+    moving_average(window=20)
+        Calculate moving average for the close prices.
+    macd(short_window=12, long_window=26, signal_window=9)
+        Calculate MACD for the close prices.
+    rsi(period=14)
+        Calculate RSI for the close prices.
+    """
+
     def __init__(self, symbol=None, date=None, high=None, low=None, open=None, close=None, volume=None):
         self.symbol = symbol
         self.high = high if high is not None else []
@@ -58,7 +91,49 @@ class Ticker_Day:
 
     @classmethod
     def from_yf(cls, symbol, start_date, end_date, force_refresh=False):
+        """
+        Fetch data from Yahoo Finance using YFFetcher.
+        PARAMETER
+        ---------
+        symbol : str
+            Ticker symbol.
+        start_date : str
+            Start date in 'YYYY-MM-DD' format.
+        end_date : str
+            End date in 'YYYY-MM-DD' format.
+        force_refresh : bool
+            If True, ignore cached data and fetch fresh data.
+        RETURNS
+        -------
+        Ticker_Day
+            Instance containing the fetched data.
+        """
         return YFFetcher().fetch_data(symbol, start_date, end_date, force_refresh=force_refresh)
+    
+    #Calculators
+    def moving_average(self, window=20):
+        """Calculate moving average for the close prices."""
+        return pd.Series(self.close).rolling(window=window).mean().tolist()
+    
+    def macd(self, short_window=12, long_window=26, signal_window=9):
+        """Calculate MACD for the close prices."""
+        close_series = pd.Series(self.close)
+        short_ema = close_series.ewm(span=short_window, adjust=False).mean()
+        long_ema = close_series.ewm(span=long_window, adjust=False).mean()
+        macd_line = short_ema - long_ema
+        signal_line = macd_line.ewm(span=signal_window, adjust=False).mean()
+        histogram = macd_line - signal_line
+        return macd_line.tolist(), signal_line.tolist(), histogram.tolist()
+    
+    def rsi(self, period=14):
+        """Calculate RSI for the close prices."""
+        close_series = pd.Series(self.close)
+        delta = close_series.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+        return rsi.tolist()
 
 class YFFetcher:
     def __init__(self):
@@ -130,6 +205,6 @@ class YFFetcher:
 
         return cached.subset(start_date, end_date)
 
-if __name__ == "__main__":
-    test = Ticker_Day.from_yf('AAPL', '2021-01-01', '2025-12-31')
-    print(test.high)
+
+test = Ticker_Day.from_yf('AAPL', '2021-01-01', '2025-12-31')
+print(test.moving_average())
