@@ -27,7 +27,8 @@ Please do set up virtual environments accordingly to avoid dependency version co
    · uv:[https://docs.astral.sh/uv/] \
    · XGBoost: [https://xgboost.readthedocs.io/en/stable/] \
    · Pandas: [https://pandas.pydata.org/docs/user_guide/index.html] \
-   · yfinance: [https://ranaroussi.github.io/yfinance/]
+   · yfinance: [https://ranaroussi.github.io/yfinance/] \
+   · Tushare: [https://tushare.pro/document/2]
 
 ## fetcher_yf Module
 
@@ -35,7 +36,7 @@ A stock data fetcher with persistent caching. Fetches OHLCV data from Yahoo Fina
 
 ### Usage
 ```python
-from fetcher_yf import Ticker_Day
+from fetcher.fetcher_yf import Ticker_Day
 
 # Fetch AAPL data (downloads and caches)
 data = Ticker_Day.from_yf('AAPL', '2023-01-01', '2023-12-31')
@@ -52,8 +53,61 @@ print(data.volume)  # Volume
 data = Ticker_Day.from_yf('AAPL', '2023-01-01', '2023-12-31', force_refresh=True)
 ```
 
+### Technical Indicators
+```python
+# Moving Average (default window=20)
+ma = data.moving_average(window=20)
+
+# MACD (returns macd_line, signal_line, histogram)
+macd_line, signal_line, histogram = data.macd(short_window=12, long_window=26, signal_window=9)
+
+# RSI (default period=14)
+rsi = data.rsi(period=14)
+```
+
+### Utility Methods
+```python
+# Get subset of data for a date range
+subset_data = data.subset('2023-06-01', '2023-06-30')
+
+# Merge data from another Ticker_Day object
+data.merge(other_data)
+```
+
 ### Cache Behavior
 - Cache stored in `cache/` directory as `{ticker}.pkl`
 - Only fetches missing date ranges from Yahoo Finance
 - Automatically merges new data with cached data
+
+## fetcher_ts Module
+
+A stock data fetcher for Chinese stocks using Tushare API. Fetches OHLCV data and caches it locally, automatically trying different exchanges (Shenzhen, Beijing, Shanghai).
+
+### Usage
+```python
+from fetcher.fetcher_ts import TSFetcher
+
+# Fetch Chinese stock data (e.g., Ping An Bank)
+data = TSFetcher.from_ts('000001', '2023-01-01', '2023-12-31')
+
+# Access data (same interface as fetcher_yf)
+print(data.date)    # List of dates
+print(data.high)    # High prices
+print(data.low)     # Low prices
+print(data.open)    # Open prices
+print(data.close)   # Close prices
+print(data.volume)  # Volume
+
+# Force refresh (ignore cache)
+data = TSFetcher.from_ts('000001', '2023-01-01', '2023-12-31', force_refresh=True)
+
+# Use custom API key
+data = TSFetcher.from_ts('000001', '2023-01-01', '2023-12-31', api_key='your_api_key')
+```
+
+### Features
+- Automatically tries multiple exchanges (.SZ, .BJ, .SH) to find valid data
+- Returns `Ticker_Day` objects compatible with fetcher_yf
+- Built-in retry mechanism for API failures
+- Cache stored in `cache/` directory as `{symbol}.pkl`
 

@@ -24,6 +24,8 @@ class Ticker_Day:
         List of close prices.
     volume : list of int
         List of volumes.
+    sector: str
+        type of stock - e.g., energy / tech
     METHODS
     -------
     merge(other)
