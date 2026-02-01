@@ -204,7 +204,3 @@ class YFFetcher:
         self._save_cache(ticker, cached)
 
         return cached.subset(start_date, end_date)
-
-
-test = Ticker_Day.from_yf('AAPL', '2021-01-01', '2025-12-31')
-print(test.moving_average())
