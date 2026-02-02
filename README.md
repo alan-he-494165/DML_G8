@@ -21,7 +21,7 @@ Please do set up virtual environments accordingly to avoid dependency version co
    ```
    git merge origin main
    ```
-   c) Do NOT merge anything into branch unless you are superconfident at early-stage of the project. Do NOT merge anything into branch without discussion with others at late stage of the project
+   c) Do NOT merge anything into main branch unless you are superconfident at early-stage of the project. Do NOT merge anything into main branch without discussion with others at late stage of the project
 
 4. Useful websites
    · uv:[https://docs.astral.sh/uv/] \
