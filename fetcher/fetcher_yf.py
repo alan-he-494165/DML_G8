@@ -177,8 +177,11 @@ class YFFetcher:
         start = pd.Timestamp(start_date)
         end = pd.Timestamp(end_date)
 
+        cached = None
+
         # Load cached data
-        cached = self._load_cache(ticker)
+        if not force_refresh:
+            cached = self._load_cache(ticker)
 
         if cached is None or force_refresh:
             # No cache - fetch entire range
