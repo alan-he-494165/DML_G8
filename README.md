@@ -111,3 +111,12 @@ data = TSFetcher.from_ts('000001', '2023-01-01', '2023-12-31', api_key='your_api
 - Built-in retry mechanism for API failures
 - Cache stored in `cache/` directory as `{symbol}.pkl`
 
+- get news data use this instruction 
+macOS（Terminal）
+pip install gdown
+gdown 1ydXVbgVsQiTmCbJyh1BNf38gWRMqEEjr
+
+Windows（PowerShell）
+pip install gdown 
+gdown 1ydXVbgVsQiTmCbJyh1BNf38gWRMqEEjr
+tar -xf news.zip
