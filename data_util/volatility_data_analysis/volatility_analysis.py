@@ -1,4 +1,6 @@
 import os
+import importlib
+import sys
 import pickle
 import pandas as pd
 import numpy as np
@@ -6,20 +8,42 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from pathlib import Path
 
-CACHE_DIR = 'cache'
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+CACHE_DIR = 'data_for_process/cache_raw_stock'
 
 def load_all_tickers():
     """Load all cached ticker data"""
     tickers = {}
     cache_files = Path(CACHE_DIR).glob('*.pkl')
+
+    module_map = {
+        'fetcher': 'data_util.fetcher',
+        'fetcher.fetcher_yf': 'data_util.fetcher.fetcher_yf',
+        'fetcher.fetcher_ts': 'data_util.fetcher.fetcher_ts'
+    }
+
+    class RemapUnpickler(pickle.Unpickler):
+        def find_class(self, module, name):
+            mapped = module_map.get(module, module)
+            if mapped != module:
+                importlib.import_module(mapped)
+            return super().find_class(mapped, name)
+
+    def load_pickle(path):
+        with open(path, 'rb') as f:
+            return RemapUnpickler(f).load()
     
     for pkl_file in cache_files:
+        if not pkl_file.stem.isdigit():
+            continue
         try:
-            with open(pkl_file, 'rb') as f:
-                ticker_data = pickle.load(f)
-                symbol = ticker_data.symbol
-                tickers[symbol] = ticker_data
-                print(f"Loaded: {symbol}")
+            ticker_data = load_pickle(pkl_file)
+            symbol = ticker_data.symbol
+            tickers[symbol] = ticker_data
+            print(f"Loaded: {symbol}")
         except Exception as e:
             print(f"Error loading {pkl_file}: {e}")
     
@@ -68,10 +92,29 @@ def calculate_volatility_stats(tickers):
             'num_records': len(ticker.high)
         })
     
+    if not stats:
+        return pd.DataFrame(
+            columns=[
+                'symbol',
+                'avg_high',
+                'avg_low',
+                'avg_amplitude',
+                'max_high',
+                'max_amplitude',
+                'std_amplitude',
+                'range_high',
+                'range_low',
+                'num_records'
+            ]
+        )
+
     return pd.DataFrame(stats)
 
 def plot_volatility_analysis(stats_df):
     """Plot volatility analysis charts"""
+    if stats_df.empty:
+        print("No data available for volatility plots.")
+        return
     
     # Sort by average amplitude and view top 30 stocks with largest amplitude
     top_volatile = stats_df.nlargest(30, 'avg_amplitude')
@@ -120,6 +163,9 @@ def plot_volatility_analysis(stats_df):
 
 def plot_additional_analysis(stats_df):
     """Plot additional analysis charts"""
+    if stats_df.empty:
+        print("No data available for detailed plots.")
+        return
     
     fig, axes = plt.subplots(2, 2, figsize=(16, 12))
     fig.suptitle('Stock Volatility Detailed Analysis', fontsize=16, fontweight='bold')
@@ -165,6 +211,14 @@ def plot_additional_analysis(stats_df):
 
 def print_statistics_summary(stats_df):
     """Print statistics summary"""
+    if stats_df.empty:
+        print("\n" + "="*60)
+        print("Stock Volatility Statistics Summary")
+        print("="*60)
+        print("Total number of stocks: 0")
+        print("No data available for volatility statistics.")
+        print("="*60)
+        return
     print("\n" + "="*60)
     print("Stock Volatility Statistics Summary")
     print("="*60)

@@ -44,9 +44,9 @@ if 'fetcher.fetcher_yf' not in sys.modules:
     sys.modules['fetcher'] = types.ModuleType('fetcher')
     sys.modules['fetcher'].fetcher_yf = fetcher_module
 
-CACHE_DIR = os.path.join('data_for_process', 'cache_raw_stock')
-CACHE_OUTPUT_DIR = os.path.join('data_for_process', 'cache_output')
-OUTPUT_DIR = os.path.join('data_for_process', 'xgboost_dataset')
+CACHE_DIR = os.path.join('data_for_process', 'cache_raw_stock', 'china_stock')  # Adjust if needed
+CACHE_OUTPUT_DIR = os.path.join('data_for_process', 'cache_output', 'china_stock')  # Adjust if needed
+OUTPUT_DIR = os.path.join('data_for_process', 'xgboost_dataset_china_stock')  # Adjust if needed
 
 # Configuration
 ROLLING_WINDOW = 20  # 20-day rolling volatility window
@@ -284,31 +284,12 @@ class XGBoostDatasetCreator:
             dataset: DataFrame with features and labels
         """
         os.makedirs(OUTPUT_DIR, exist_ok=True)
-        
-        # Save as CSV
-        csv_path = os.path.join(OUTPUT_DIR, 'xgboost_training_dataset.csv')
-        dataset.to_csv(csv_path, index=False)
-        print(f"Saved: {csv_path}")
-        
+
         # Save as pickle (more efficient for large datasets)
         pkl_path = os.path.join(OUTPUT_DIR, 'xgboost_training_dataset.pkl')
         with open(pkl_path, 'wb') as f:
             pickle.dump(dataset, f)
         print(f"Saved: {pkl_path}")
-        
-        # Save as NPZ (numpy format) for XGBoost
-        X = dataset[['intraday_range', 'volume_change_rate', 'rolling_historical_volatility']].values
-        y = dataset['target'].values
-        weights = dataset['confidence'].values
-        
-        npz_path = os.path.join(OUTPUT_DIR, 'xgboost_training_data.npz')
-        np.savez(npz_path, 
-                 X=X, 
-                 y=y, 
-                 weights=weights,
-                 symbols=dataset['symbol'].values,
-                 dates=dataset['date'].values)
-        print(f"Saved: {npz_path}")
     
     def generate_summary_statistics(self, dataset: pd.DataFrame):
         """
@@ -408,6 +389,19 @@ def main():
     # Generate statistics
     creator.generate_summary_statistics(dataset)
     
+    # Keep required features plus target, confidence, symbol, and date
+    dataset = dataset[
+        [
+            'symbol',
+            'date',
+            'rolling_historical_volatility',
+            'volume_change_rate',
+            'intraday_range',
+            'target',
+            'confidence',
+        ]
+    ].copy()
+
     # Save dataset
     print("\nSaving dataset...")
     print("-" * 70)
@@ -416,8 +410,15 @@ def main():
     # Display sample rows
     print("\nSample rows from dataset:")
     print("-" * 70)
-    sample_cols = ['date', 'symbol', 'intraday_range', 'volume_change_rate', 
-                   'rolling_historical_volatility', 'target', 'confidence']
+    sample_cols = [
+        'symbol',
+        'date',
+        'rolling_historical_volatility',
+        'volume_change_rate',
+        'intraday_range',
+        'target',
+        'confidence',
+    ]
     print(dataset[sample_cols].head(10).to_string(index=False))
     
     print("\n" + "="*70)
@@ -425,12 +426,9 @@ def main():
     print("="*70 + "\n")
     
     print("Output Files:")
-    print(f"  1. {OUTPUT_DIR}/xgboost_training_dataset.csv")
-    print(f"  2. {OUTPUT_DIR}/xgboost_training_dataset.pkl")
-    print(f"  3. {OUTPUT_DIR}/xgboost_training_data.npz")
+    print(f"  1. {OUTPUT_DIR}/xgboost_training_dataset.pkl")
     print("\nUsage in xgb.py:")
-    print("  - Load CSV: pd.read_csv('data_for_process/xgboost_training_dataset.csv')")
-    print("  - Load NPZ with weights: data = np.load('data_for_process/xgboost_training_data.npz')")
+    print("  - Load PKL: pd.read_pickle('data_for_process/xgboost_training_dataset.pkl')")
     print("  - Train with weights: model.fit(X, y, sample_weight=weights)")
 
 
