@@ -41,8 +41,14 @@ def prepare_data(data, val_size=0.1, test_size=0.1):
     Returns:
         X_train, X_val, X_test, y_train, y_val, y_test, weights_train, weights_val, weights_test
     """
-    # Feature columns
-    feature_cols = ['intraday_range', 'volume_change_rate', 'rolling_historical_volatility']
+    # Feature columns (5 inputs)
+    feature_cols = [
+        'intraday_range',
+        'volume_change_rate',
+        'rolling_historical_volatility',
+        'prev_day_news_count',
+        'prev_day_avg_news_sentiment'
+    ]
     
     X = data[feature_cols].values
     y = data['target'].values
@@ -84,6 +90,8 @@ def prepare_data(data, val_size=0.1, test_size=0.1):
     print(f"  intraday_range: mean={X_train[:, 0].mean():.6f}, std={X_train[:, 0].std():.6f}")
     print(f"  volume_change_rate: mean={X_train[:, 1].mean():.6f}, std={X_train[:, 1].std():.6f}")
     print(f"  rolling_historical_volatility: mean={X_train[:, 2].mean():.6f}, std={X_train[:, 2].std():.6f}")
+    print(f"  prev_day_news_count: mean={X_train[:, 3].mean():.6f}, std={X_train[:, 3].std():.6f}")
+    print(f"  prev_day_avg_news_sentiment: mean={X_train[:, 4].mean():.6f}, std={X_train[:, 4].std():.6f}")
     
     print(f"\nSample weights (confidence):")
     print(f"  Training set - mean={weights_train.mean():.4f}, min={weights_train.min():.4f}, max={weights_train.max():.4f}")
@@ -283,7 +291,7 @@ def evaluate_model(
     return results
 
 
-def plot_feature_importance(model, feature_names=['intraday_range', 'volume_change_rate', 'rolling_historical_volatility']):
+def plot_feature_importance(model, feature_names=['intraday_range', 'volume_change_rate', 'rolling_historical_volatility', 'prev_day_news_count', 'prev_day_avg_news_sentiment']):
     """Plot feature importance."""
     importance = model.get_booster().get_score(importance_type='weight')
     
@@ -404,8 +412,14 @@ def main():
     
     # Feature importance
     print("\nFeature Importances:")
-    for fname, importance in zip(['intraday_range', 'volume_change_rate', 'rolling_historical_volatility'], 
-                                  model.feature_importances_):
+    feature_names = [
+        'intraday_range',
+        'volume_change_rate',
+        'rolling_historical_volatility',
+        'prev_day_news_count',
+        'prev_day_avg_news_sentiment'
+    ]
+    for fname, importance in zip(feature_names, model.feature_importances_):
         print(f"  {fname}: {importance:.4f}")
     
     # Plot results
