@@ -53,10 +53,6 @@ class VolatilityRecord:
 - **LOW (0)**: Base rule requires both metrics to indicate calm (z-score <= -0.5 AND ratio < 1.5%), with overrides for extreme low values (ratio <= 0.75% or z-score < -1.0)
 - **MEDIUM (1)**: All other cases - mixed signals or moderate values
 
-**Secondary Metric**: Z-Score
-- **HIGH threshold**: |z-score| > 1.5
-- **MEDIUM threshold**: |z-score| > 0.5
-
 ### 3. Overall Statistics
 
 **Total Processed Data**:
@@ -88,6 +84,21 @@ This will:
 - Apply trinary classification rules
 - Save results to `cache_output/`
 - Generate summary CSV report
+
+**Optional: Use different confidence method**
+```python
+from data_processor.volatility_classifier import VolatilityClassifier
+
+# Default: average distance confidence (higher values)
+classifier = VolatilityClassifier()
+
+# Or use conservative minimum distance confidence
+classifier = VolatilityClassifier(confidence_method='min')
+
+# Process and save
+all_records = classifier.process_all_tickers()
+classifier.save_results(all_records)
+```
 
 ### 2. Read Results
 
@@ -158,6 +169,8 @@ DML_G8/
 
 ## Configuration
 
+### Classification Thresholds
+
 The trinary classification thresholds are hardcoded in the `classify_single_day` method:
 
 ```python
@@ -185,6 +198,39 @@ else:
 - **HIGH override**: relative_ratio >= 5% OR z_score > 2.0
 - **LOW override**: relative_ratio <= 0.75% OR z_score < -1.0
 
+### Confidence Calculation
+
+The `confidence` score (0.0-1.0) measures how firmly a record belongs to its classification.
+Higher confidence = further from classification boundaries.
+
+**For MEDIUM records**, there are two methods available:
+
+| Method | Description | Avg Confidence | Use Case |
+|--------|-------------|----------------|----------|
+| `'avg'` (default) | Average distance to all 4 boundaries | ~0.51 | General purpose, higher confidence values |
+| `'min'` | Minimum distance to any boundary | ~0.19 | Conservative, measures "closest point of failure" |
+
+**Usage:**
+```python
+# Default: average distance (higher confidence values)
+classifier = VolatilityClassifier()
+
+# Conservative: minimum distance (lower confidence, more strict)
+classifier = VolatilityClassifier(confidence_method='min')
+
+# Custom thresholds with confidence method
+classifier = VolatilityClassifier(
+    high_zscore_threshold=0.5,
+    high_ratio_threshold=0.03,
+    confidence_method='avg'
+)
+```
+
+**How MEDIUM confidence is calculated:**
+- 4 distances are computed (to HIGH z-boundary, LOW z-boundary, HIGH ratio-boundary, LOW ratio-boundary)
+- `'avg'`: confidence = average of all 4 distances
+- `'min'`: confidence = minimum of all 4 distances
+
 ## Example Output
 
 ```
@@ -203,7 +249,8 @@ Confidence: 0.5777
 - **Total Output Size**: ~150-200 MB (pickled)
 - **Records per Stock**: 700-1700 (varies by data availability)
 - **Mean Z-Score Magnitude**: ~0.7
-- **Mean Confidence Score**: ~0.16
+- **Mean Confidence Score**: ~0.51 (with default `confidence_method='avg'`)
+  - Using `confidence_method='min'`: ~0.19
 
 ## Target Distribution (Actual from China Stock Data)
 
@@ -222,5 +269,5 @@ The `volatility_trinary` label can be used as:
 ---
 
 **Created**: February 2026
-**Updated**: March 2026 (Trinary Classification)
+**Updated**: March 2026 (Trinary Classification, Confidence Method Options)
 **System**: Trinary Volatility Classification using Relative Amplitude + Z-Score

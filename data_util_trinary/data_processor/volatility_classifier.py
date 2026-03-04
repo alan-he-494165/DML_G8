@@ -64,13 +64,29 @@ class VolatilityClassifier:
     """
 
     def __init__(self, high_zscore_threshold=0.5, high_ratio_threshold=0.03, extreme_ratio_threshold=0.05, extreme_zscore_threshold=2.0,
-                 low_zscore_threshold=-0.5, low_ratio_threshold=0.015, extreme_low_ratio_threshold=0.0075, extreme_low_zscore_threshold=-1.0):
+                 low_zscore_threshold=-0.5, low_ratio_threshold=0.015, extreme_low_ratio_threshold=0.0075, extreme_low_zscore_threshold=-1.0,
+                 confidence_method='avg'):
         """
         Initialize classifier with fixed thresholds
 
-        Classification rules (hardcoded):
-        - HIGH (2):   (z_score > 0.5 AND relative_ratio >= 3%) OR relative_ratio >= 5% OR z_score > 2.0
-        - LOW (0):    (z_score <= -0.5 AND relative_ratio < 1.5%) OR relative_ratio <= 0.75% OR z_score < -1.0
+        Args:
+            high_zscore_threshold: z-score threshold for HIGH boundary (default: 0.5)
+            high_ratio_threshold: relative ratio threshold for HIGH boundary (default: 0.03)
+            extreme_ratio_threshold: extreme ratio threshold for automatic HIGH (default: 0.05)
+            extreme_zscore_threshold: extreme z-score threshold for automatic HIGH (default: 2.0)
+            low_zscore_threshold: z-score threshold for LOW boundary (default: -0.5)
+            low_ratio_threshold: relative ratio threshold for LOW boundary (default: 0.015)
+            extreme_low_ratio_threshold: extreme low ratio threshold for automatic LOW (default: 0.0075)
+            extreme_low_zscore_threshold: extreme low z-score threshold for automatic LOW (default: -1.0)
+            confidence_method: method for MEDIUM confidence calculation (default: 'min')
+                - 'min': confidence = minimum distance to any boundary (conservative)
+                - 'avg': confidence = average distance to all boundaries (higher values)
+
+        Classification rules:
+        - HIGH (2):   (z_score > high_zscore_threshold AND relative_ratio >= high_ratio_threshold)
+                      OR relative_ratio >= extreme_ratio_threshold OR z_score > extreme_zscore_threshold
+        - LOW (0):    (z_score <= low_zscore_threshold AND relative_ratio < low_ratio_threshold)
+                      OR relative_ratio <= extreme_low_ratio_threshold OR z_score < extreme_low_zscore_threshold
         - MEDIUM (1): Everything else
         """
         # Fixed thresholds for classification
@@ -82,6 +98,7 @@ class VolatilityClassifier:
         self.low_ratio_threshold = low_ratio_threshold
         self.extreme_low_ratio_threshold = extreme_low_ratio_threshold
         self.extreme_low_zscore_threshold = extreme_low_zscore_threshold
+        self.confidence_method = confidence_method  # 'min' or 'avg'
     
     def classify_single_day(self, high: float, low: float, close: float, open_price: float,
                            historical_mean_amplitude: float, historical_std_amplitude: float) -> dict:
@@ -115,52 +132,88 @@ class VolatilityClassifier:
             z_score = (daily_amplitude - historical_mean_amplitude) / historical_std_amplitude
         
         # Determine trinary volatility label using combined metrics with extreme value overrides
-        # HIGH (2): (z_score > 0.5 AND relative_ratio >= 3%) OR relative_ratio >= 5% OR z_score > 2.0
-        # LOW (0):  (z_score <= -0.5 AND relative_ratio < 1.5%) OR relative_ratio <= 0.75% OR z_score < -1.0
-        # MEDIUM (1): Everything else (not clearly HIGH or LOW)
-        high_zscore = z_score > 0.5
-        high_ratio = relative_ratio >= 0.03
-        low_zscore = z_score <= -0.5
-        low_ratio = relative_ratio < 0.015
+        # HIGH (2): (z_score > high_zscore_threshold AND relative_ratio >= high_ratio_threshold)
+        #           OR relative_ratio >= extreme_ratio_threshold OR z_score > extreme_zscore_threshold
+        # LOW (0):  (z_score <= low_zscore_threshold AND relative_ratio < low_ratio_threshold)
+        #           OR relative_ratio <= extreme_low_ratio_threshold OR z_score < extreme_low_zscore_threshold
+        # MEDIUM (1): Everything else
+        high_zscore = z_score > self.high_zscore_threshold
+        high_ratio = relative_ratio >= self.high_ratio_threshold
+        low_zscore = z_score <= self.low_zscore_threshold
+        low_ratio = relative_ratio < self.low_ratio_threshold
 
-        if (high_zscore and high_ratio) or relative_ratio >= 0.05 or z_score > 2.0:
-            volatility_trinary = 2  # HIGH: both metrics agree OR extreme value (ratio >= 5% or z > 2.0)
-        elif (low_zscore and low_ratio) or relative_ratio <= 0.0075 or z_score < -1.0:
+        if (high_zscore and high_ratio) or relative_ratio >= self.extreme_ratio_threshold or z_score > self.extreme_zscore_threshold:
+            volatility_trinary = 2  # HIGH: both metrics agree OR extreme value
+        elif (low_zscore and low_ratio) or relative_ratio <= self.extreme_low_ratio_threshold or z_score < self.extreme_low_zscore_threshold:
             volatility_trinary = 0  # LOW: both metrics agree OR extreme low value
         else:
             volatility_trinary = 1  # MEDIUM: mixed signals or moderate values
 
         # Calculate confidence (0-1) based on distance from classification boundaries
-        # Higher confidence when deep into a category, lower near boundaries
+        # Uses class threshold attributes for all calculations
+        z_conf = 0.0
+        r_conf = 0.0
+
         if volatility_trinary == 2:  # HIGH
-            # How far into HIGH territory
-            if z_score > 2.0:
-                z_conf = min((z_score - 2.0) / 2.0, 1.0)
-            elif relative_ratio >= 0.05:
-                r_conf = min((relative_ratio - 0.05) / 0.05, 1.0)
+            # Measure how far into HIGH territory
+            if z_score > self.extreme_zscore_threshold:
+                # Extreme z-score: confidence from how far past extreme_zscore_threshold
+                z_conf = min((z_score - self.extreme_zscore_threshold) / 2.0, 1.0)
+            elif relative_ratio >= self.extreme_ratio_threshold:
+                # Extreme ratio: confidence from how far past extreme_ratio_threshold
+                r_conf = min((relative_ratio - self.extreme_ratio_threshold) / self.extreme_ratio_threshold, 1.0)
             else:
-                z_conf = min((z_score - 0.5) / 1.5, 1.0)
-                r_conf = min((relative_ratio - 0.03) / 0.02, 1.0)
-            confidence = max(z_conf if 'z_conf' in dir() else 0, r_conf if 'r_conf' in dir() else 0)
+                # Base HIGH: distance from high_zscore_threshold AND high_ratio_threshold boundary
+                z_conf = min(max(z_score - self.high_zscore_threshold, 0) / (self.extreme_zscore_threshold - self.high_zscore_threshold), 1.0)
+                r_conf = min(max(relative_ratio - self.high_ratio_threshold, 0) / (self.extreme_ratio_threshold - self.high_ratio_threshold), 1.0)
+            confidence = max(z_conf, r_conf)
+
         elif volatility_trinary == 0:  # LOW
-            # How far into LOW territory
-            if z_score < -1.0:
-                z_conf = min(abs(z_score + 1.0), 1.0)
-            elif relative_ratio <= 0.0075:
-                r_conf = min(abs(relative_ratio - 0.0075) / 0.0075, 1.0)
+            # Measure how far into LOW territory
+            if z_score < self.extreme_low_zscore_threshold:
+                # Extreme z-score: confidence from how far below extreme_low_zscore_threshold
+                z_conf = min(abs(z_score - self.extreme_low_zscore_threshold), 1.0)
+            elif relative_ratio <= self.extreme_low_ratio_threshold:
+                # Extreme low ratio: confidence from how far below extreme_low_ratio_threshold
+                r_conf = min((self.extreme_low_ratio_threshold - relative_ratio) / self.extreme_low_ratio_threshold, 1.0)
             else:
-                z_conf = min(abs(z_score + 0.5), 1.0)
-                r_conf = min(abs(relative_ratio - 0.015) / 0.015, 1.0)
-            confidence = max(z_conf if 'z_conf' in dir() else 0, r_conf if 'r_conf' in dir() else 0)
-        else:  # MEDIUM - confidence is lower near boundaries
-            # Distance to nearest boundary (higher = more confidently MEDIUM)
-            z_dist_high = max(0, 0.5 - z_score)
-            z_dist_low = max(0, z_score + 0.5)
-            r_dist_high = max(0, 0.03 - relative_ratio)
-            r_dist_low = max(0, relative_ratio - 0.015)
-            # Normalize and combine
-            min_dist = min(z_dist_high/0.5, z_dist_low/0.5, r_dist_high/0.03, r_dist_low/0.015)
-            confidence = min(min_dist, 1.0)
+                # Base LOW: distance from low_zscore_threshold AND low_ratio_threshold boundary
+                z_conf = min(max(self.low_zscore_threshold - z_score, 0) / abs(self.extreme_low_zscore_threshold - self.low_zscore_threshold), 1.0)
+                r_conf = min(max(self.low_ratio_threshold - relative_ratio, 0) / (self.low_ratio_threshold - self.extreme_low_ratio_threshold), 1.0)
+            confidence = max(z_conf, r_conf)
+
+        else:  # MEDIUM
+            # MEDIUM is between HIGH and LOW boundaries
+            # Distance to each boundary (how much change before reclassification)
+
+            # Distance to HIGH boundary (how much z/ratio needs to increase to trigger HIGH)
+            z_to_high = self.high_zscore_threshold - z_score
+            r_to_high = self.high_ratio_threshold - relative_ratio
+
+            # Distance to LOW boundary (how much z/ratio needs to decrease to trigger LOW)
+            z_to_low = z_score - self.low_zscore_threshold
+            r_to_low = relative_ratio - self.low_ratio_threshold
+
+            # Normalize by the range
+            z_range = self.high_zscore_threshold - self.low_zscore_threshold
+            r_range = self.high_ratio_threshold - self.low_ratio_threshold
+
+            # Calculate normalized distances (all positive for MEDIUM points)
+            z_dist_high = max(0, z_to_high) / z_range
+            z_dist_low = max(0, z_to_low) / z_range
+            r_dist_high = max(0, r_to_high) / r_range
+            r_dist_low = max(0, r_to_low) / r_range
+
+            # Use configured method for combining distances
+            if self.confidence_method == 'avg':
+                # Average distance: higher confidence, less sensitive to single boundary
+                confidence = (z_dist_high + z_dist_low + r_dist_high + r_dist_low) / 4.0
+            elif self.confidence_method == 'min':
+                # Minimum distance (default): conservative, measures closest boundary
+                confidence = min(z_dist_high, z_dist_low, r_dist_high, r_dist_low)
+            else:
+                raise ValueError(f"Invalid confidence_method: {self.confidence_method}. Use 'min' or 'avg'.")
+
         confidence = max(0.0, min(1.0, confidence))
 
         return {
@@ -324,7 +377,11 @@ def main():
     print("                OR relative_ratio <= 0.75% OR z_score < -1.0")
     print("  - MEDIUM (1): Everything else\n")
 
-    classifier = VolatilityClassifier()
+    print("Confidence calculation for MEDIUM records:")
+    print("  - Method: 'min' = minimum distance to any boundary (conservative, avg ~0.19)")
+    print("  - Use confidence_method='avg' for average distance (higher, avg ~0.51)\n")
+
+    classifier = VolatilityClassifier()  # default: confidence_method='min'
     
     # Process all tickers
     print(f"Processing all tickers from cache directory: {CACHE_DIR}")
