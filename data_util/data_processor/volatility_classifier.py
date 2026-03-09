@@ -1,7 +1,7 @@
 """
-Binary Volatility Classifier
+Multi-class Volatility Classifier
 Processes all stock data and generates volatility labels using z-score and relative amplitude ratio
-Output: pickle files with Date, Open, Symbol, and is_high_volatility label
+Output: pickle files with Date, Open, Symbol, and volatility_level label (0=LOW, 1=MEDIUM, 2=HIGH)
 """
 
 import sys
@@ -11,7 +11,14 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 from dataclasses import dataclass
+from enum import IntEnum
 from typing import List
+
+
+class VolatilityLevel(IntEnum):
+    LOW = 0
+    MEDIUM = 1
+    HIGH = 2
 
 # Add parent directory to path to import fetcher module
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -26,7 +33,7 @@ class VolatilityRecord:
     date: pd.Timestamp
     open_price: float
     symbol: str
-    is_high_volatility: bool  # 1 if HIGH, 0 if LOW
+    volatility_level: VolatilityLevel  # 0=LOW, 1=MEDIUM, 2=HIGH
     relative_amplitude_ratio: float
     z_score: float
     confidence: float
@@ -37,16 +44,26 @@ class VolatilityClassifier:
     Binary volatility classifier using relative amplitude ratio and z-score
     """
     
-    def __init__(self, relative_ratio_threshold: float = 0.02, z_score_threshold: float = 1.5):
+    def __init__(self, ratio_thresholds: tuple = (0.02, 0.04), z_thresholds: tuple = (1.5, 2.5)):
         """
-        Initialize classifier with thresholds
-        
+        Initialize classifier with two thresholds per metric for 3-class output.
+
         Args:
-            relative_ratio_threshold: threshold for (High-Low)/Close (default: 2%)
-            z_score_threshold: threshold for z-score magnitude (default: 1.5)
+            ratio_thresholds: (low_mid, mid_high) boundaries for (High-Low)/Close
+                              default: (2%, 4%) → LOW ≤2%, MEDIUM 2-4%, HIGH >4%
+            z_thresholds: (low_mid, mid_high) boundaries for |z-score|
+                          default: (1.5, 2.5) → LOW ≤1.5, MEDIUM 1.5-2.5, HIGH >2.5
         """
-        self.relative_ratio_threshold = relative_ratio_threshold
-        self.z_score_threshold = z_score_threshold
+        self.ratio_low, self.ratio_high = ratio_thresholds
+        self.z_low, self.z_high = z_thresholds
+
+    def _classify_level(self, value: float, low_thresh: float, high_thresh: float) -> VolatilityLevel:
+        """Classify a single metric value into LOW/MEDIUM/HIGH."""
+        if value > high_thresh:
+            return VolatilityLevel.HIGH
+        elif value > low_thresh:
+            return VolatilityLevel.MEDIUM
+        return VolatilityLevel.LOW
     
     def classify_single_day(self, high: float, low: float, close: float, open_price: float,
                            historical_mean_amplitude: float, historical_std_amplitude: float) -> dict:
@@ -78,21 +95,25 @@ class VolatilityClassifier:
             z_score = 0
         else:
             z_score = (daily_amplitude - historical_mean_amplitude) / historical_std_amplitude
-        
-        # Determine high volatility
-        is_high_volatility = (relative_ratio > self.relative_ratio_threshold) or (abs(z_score) > self.z_score_threshold)
-        
-        # Calculate confidence (0-1)
-        # Confidence increases with how far the metric is from threshold
-        ratio_confidence = min(abs(relative_ratio - self.relative_ratio_threshold) / (self.relative_ratio_threshold + 0.001), 1.0)
-        z_confidence = min(abs(z_score) / (self.z_score_threshold + 0.001), 1.0)
+
+        # Classify each metric independently, take the more extreme level
+        ratio_level = self._classify_level(relative_ratio, self.ratio_low, self.ratio_high)
+        z_level = self._classify_level(abs(z_score), self.z_low, self.z_high)
+        volatility_level = max(ratio_level, z_level)
+
+        # Confidence (0-1): how far the sample is from its nearest threshold boundary.
+        # Samples near a boundary get low confidence; clear cases get high confidence.
+        ratio_min_dist = min(abs(relative_ratio - self.ratio_low), abs(relative_ratio - self.ratio_high))
+        z_min_dist = min(abs(abs(z_score) - self.z_low), abs(abs(z_score) - self.z_high))
+        ratio_confidence = min(ratio_min_dist / (self.ratio_low + 0.001), 1.0)
+        z_confidence = min(z_min_dist / (self.z_low + 0.001), 1.0)
         confidence = max(ratio_confidence, z_confidence)
-        
+
         return {
             'daily_amplitude': daily_amplitude,
             'relative_amplitude_ratio': relative_ratio,
             'z_score': z_score,
-            'is_high_volatility': is_high_volatility,
+            'volatility_level': int(volatility_level),
             'confidence': confidence
         }
     
@@ -133,7 +154,7 @@ class VolatilityClassifier:
                     date=ticker_data.date[i],
                     open_price=ticker_data.open[i] if ticker_data.open and len(ticker_data.open) > i else 0,
                     symbol=symbol,
-                    is_high_volatility=classification['is_high_volatility'],
+                    volatility_level=VolatilityLevel(classification['volatility_level']),
                     relative_amplitude_ratio=classification['relative_amplitude_ratio'],
                     z_score=classification['z_score'],
                     confidence=classification['confidence']
@@ -212,14 +233,20 @@ class VolatilityClassifier:
             if not records:
                 continue
             
-            high_vol_count = sum(1 for r in records if r.is_high_volatility)
+            low_count  = sum(1 for r in records if r.volatility_level == VolatilityLevel.LOW)
+            med_count  = sum(1 for r in records if r.volatility_level == VolatilityLevel.MEDIUM)
+            high_count = sum(1 for r in records if r.volatility_level == VolatilityLevel.HIGH)
             total_count = len(records)
-            
+
             summary.append({
                 'symbol': symbol,
                 'total_records': total_count,
-                'high_volatility_count': high_vol_count,
-                'high_volatility_ratio': high_vol_count / total_count if total_count > 0 else 0,
+                'low_count': low_count,
+                'medium_count': med_count,
+                'high_count': high_count,
+                'low_ratio': low_count / total_count if total_count > 0 else 0,
+                'medium_ratio': med_count / total_count if total_count > 0 else 0,
+                'high_ratio': high_count / total_count if total_count > 0 else 0,
                 'avg_relative_ratio': np.mean([r.relative_amplitude_ratio for r in records]),
                 'avg_z_score': np.mean([abs(r.z_score) for r in records]),
                 'avg_confidence': np.mean([r.confidence for r in records])
@@ -236,12 +263,12 @@ def main():
     
     # Initialize classifier
     print("Initializing classifier with thresholds:")
-    print(f"  - Relative amplitude ratio: > 2.0%")
-    print(f"  - Z-score magnitude: > 1.5\n")
-    
+    print(f"  - Relative amplitude ratio: LOW ≤2.0%, MEDIUM 2-4%, HIGH >4.0%")
+    print(f"  - Z-score magnitude:        LOW ≤1.5,  MEDIUM 1.5-2.5, HIGH >2.5\n")
+
     classifier = VolatilityClassifier(
-        relative_ratio_threshold=0.02,
-        z_score_threshold=1.5
+        ratio_thresholds=(0.02, 0.04),
+        z_thresholds=(1.5, 2.5),
     )
     
     # Process all tickers
@@ -266,26 +293,28 @@ def main():
     
     # Generate summary
     summary_df = classifier.generate_summary_statistics(all_records)
-    summary_df = summary_df.sort_values('high_volatility_ratio', ascending=False)
-    
+    summary_df = summary_df.sort_values('high_ratio', ascending=False)
+
     # Print summary statistics
     print("\nTop 15 stocks by high volatility ratio:")
     print(summary_df.head(15).to_string(index=False))
-    
+
     print("\nBottom 15 stocks by high volatility ratio:")
     print(summary_df.tail(15).to_string(index=False))
-    
+
     # Overall statistics
     print("\n" + "="*70)
     print("OVERALL STATISTICS")
     print("="*70)
-    overall_high_vol = summary_df['high_volatility_count'].sum()
+    overall_low  = summary_df['low_count'].sum()
+    overall_med  = summary_df['medium_count'].sum()
+    overall_high = summary_df['high_count'].sum()
     overall_total = summary_df['total_records'].sum()
-    overall_ratio = overall_high_vol / overall_total if overall_total > 0 else 0
-    
-    print(f"Total high volatility records: {overall_high_vol}")
-    print(f"Total records: {overall_total}")
-    print(f"High volatility ratio: {overall_ratio:.2%}")
+
+    print(f"Total records:            {overall_total}")
+    print(f"  LOW  volatility:        {overall_low}  ({overall_low/overall_total:.2%})")
+    print(f"  MEDIUM volatility:      {overall_med}  ({overall_med/overall_total:.2%})")
+    print(f"  HIGH volatility:        {overall_high}  ({overall_high/overall_total:.2%})")
     
     print(f"\nAverage relative amplitude ratio: {summary_df['avg_relative_ratio'].mean():.4f} ({summary_df['avg_relative_ratio'].mean()*100:.2f}%)")
     print(f"Average Z-score magnitude: {summary_df['avg_z_score'].mean():.4f}")

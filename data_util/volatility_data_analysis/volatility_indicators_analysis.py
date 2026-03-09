@@ -211,15 +211,20 @@ def demonstrate_with_sample_data():
                     relative_ratio = relative_ratios[idx]
                     z_score = (daily_amp - mean_amp) / (std_amp + 1e-8)
                     
-                    # Determine classification
-                    is_high_vol = (relative_ratio > 2.0) or (z_score > 1.5)
-                    
+                    # Determine 3-class classification
+                    if (relative_ratio > 4.0) or (z_score > 2.5):
+                        vol_level = 'HIGH'
+                    elif (relative_ratio > 2.0) or (z_score > 1.5):
+                        vol_level = 'MEDIUM'
+                    else:
+                        vol_level = 'LOW'
+
                     examples.append({
                         'symbol': ticker.symbol,
                         'daily_amplitude': daily_amp,
                         'relative_ratio_%': relative_ratio,
                         'z_score': z_score,
-                        'is_high_volatility': is_high_vol
+                        'volatility_level': vol_level
                     })
         except:
             continue
@@ -227,10 +232,10 @@ def demonstrate_with_sample_data():
     if examples:
         df_examples = pd.DataFrame(examples)
         print(df_examples.to_string(index=False))
-        print("\nThresholds used:")
-        print("  - Relative Ratio: 2.0% → HIGH volatility")
-        print("  - Z-Score: > 1.5 → HIGH volatility")
-        print("  - Otherwise: LOW volatility")
+        print("\nThresholds used (3-class):")
+        print("  - Relative Ratio ≤2.0% AND |Z-Score| ≤1.5  → LOW")
+        print("  - Relative Ratio 2-4%  OR  |Z-Score| 1.5-2.5 → MEDIUM")
+        print("  - Relative Ratio >4.0% OR  |Z-Score| >2.5    → HIGH")
 
 if __name__ == '__main__':
     analyze_daily_volatility_indicators()

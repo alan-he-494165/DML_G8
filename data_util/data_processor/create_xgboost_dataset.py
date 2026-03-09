@@ -20,8 +20,17 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 from dataclasses import dataclass
+from enum import IntEnum
 from typing import List, Tuple, Optional
 from datetime import datetime, timedelta
+
+
+# Must be defined at module level so pickle can resolve __main__.VolatilityLevel
+# when loading records produced by volatility_classifier.py
+class VolatilityLevel(IntEnum):
+    LOW = 0
+    MEDIUM = 1
+    HIGH = 2
 
 # Add parent directory to path for fetcher module
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -58,7 +67,7 @@ if 'fetcher.fetcher_yf' not in sys.modules:
     sys.modules['fetcher'].fetcher_yf = fetcher_module
 
 CACHE_DIR = os.path.join('data_for_process', 'cache_raw_stock', 'china_stock')  # Adjust if needed
-CACHE_OUTPUT_DIR = os.path.join('data_for_process', 'cache_output', 'china_stock')  # Adjust if needed
+CACHE_OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'cache_output')  # volatility_classifier.py writes here
 OUTPUT_DIR = os.path.join('data_for_process', 'xgboost_dataset_china_stock')  # Adjust if needed
 NEWS_DATA_DIR = os.path.join('data_for_process', 'news_daily_stock')  # Directory for daily news data
 
@@ -73,7 +82,7 @@ class VolatilityRecord:
     date: 'pd.Timestamp'
     open_price: float
     symbol: str
-    is_high_volatility: bool
+    volatility_level: int  # 0=LOW, 1=MEDIUM, 2=HIGH
     relative_amplitude_ratio: float
     z_score: float
     confidence: float
@@ -281,8 +290,8 @@ class XGBoostDatasetCreator:
             row['prev_day_avg_news_sentiment'] = prev_day_avg_sentiment
             
             # ===== TARGET: TODAY'S VOLATILITY LABEL (DAY t) =====
-            # Label: is_high_volatility (binary: 1 or 0) for TODAY
-            row['target'] = int(vol_record.is_high_volatility)
+            # Label: volatility_level (0=LOW, 1=MEDIUM, 2=HIGH) for TODAY
+            row['target'] = int(vol_record.volatility_level)
             
             # Sample weight: confidence score
             row['confidence'] = vol_record.confidence
@@ -391,8 +400,9 @@ class XGBoostDatasetCreator:
         
         print(f"\nTarget Distribution:")
         target_counts = dataset['target'].value_counts()
-        print(f"  High Volatility (1): {target_counts.get(1, 0)} ({target_counts.get(1, 0)/len(dataset)*100:.2f}%)")
-        print(f"  Low Volatility (0):  {target_counts.get(0, 0)} ({target_counts.get(0, 0)/len(dataset)*100:.2f}%)")
+        print(f"  LOW    Volatility (0): {target_counts.get(0, 0)} ({target_counts.get(0, 0)/len(dataset)*100:.2f}%)")
+        print(f"  MEDIUM Volatility (1): {target_counts.get(1, 0)} ({target_counts.get(1, 0)/len(dataset)*100:.2f}%)")
+        print(f"  HIGH   Volatility (2): {target_counts.get(2, 0)} ({target_counts.get(2, 0)/len(dataset)*100:.2f}%)")
         
         print(f"\nFeature Statistics:")
         feature_cols = ['intraday_range', 'volume_change_rate', 'rolling_historical_volatility']

@@ -1,6 +1,6 @@
 """
-Binary Volatility Classification with XGBoost
-Trains XGBoost classifier to predict daily stock volatility
+Multi-class Volatility Classification with XGBoost
+Trains XGBoost classifier to predict daily stock volatility as LOW / MEDIUM / HIGH
 Uses confidence scores as sample weights for weighted learning
 """
 
@@ -8,13 +8,19 @@ import pickle
 import pandas as pd
 import numpy as np
 import xgboost as xgb
+import optuna
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
     accuracy_score, precision_score, recall_score, f1_score,
     confusion_matrix, roc_auc_score, roc_curve, auc
 )
+from sklearn.preprocessing import label_binarize
+from sklearn.utils.class_weight import compute_sample_weight
 import matplotlib.pyplot as plt
 from pathlib import Path
+
+CLASS_NAMES = ['Low', 'Medium', 'High']
+N_CLASSES = 3
 
 # Dataset path
 DATASET_PATH = Path(__file__).parent.parent / 'data_for_process' / 'xgboost_dataset_china_stock' / 'xgboost_training_dataset.pkl'
@@ -111,22 +117,94 @@ def prepare_data(data, val_size=0.1, test_size=0.1):
     )
 
 
-def train_model(X_train, y_train, weights_train, **xgb_params):
+def compute_combined_weights(y: np.ndarray, confidence: np.ndarray) -> np.ndarray:
+    """
+    Multiply per-class balance weights by confidence scores.
+
+    Class balance weights correct for label imbalance across LOW/MEDIUM/HIGH.
+    Confidence scores down-weight borderline samples near threshold boundaries.
+    The product is normalised to mean=1 so the XGBoost loss scale stays stable.
+    """
+    class_w = compute_sample_weight('balanced', y)
+    combined = class_w * confidence
+    return combined / combined.mean()
+
+
+def tune_hyperparameters(
+    X_train, y_train, weights_train,
+    X_val, y_val,
+    n_trials: int = 100,
+) -> dict:
+    """
+    Bayesian hyperparameter search with Optuna.
+    Optimises macro F1 on the (unweighted) validation set.
+
+    Args:
+        X_train, y_train, weights_train: Training data and combined sample weights
+        X_val, y_val: Validation data used as the objective signal
+        n_trials: Number of Optuna trials (default 100)
+
+    Returns:
+        dict of best hyperparameters ready to pass to XGBClassifier
+    """
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+
+    def objective(trial):
+        params = {
+            'objective':        'multi:softprob',
+            'num_class':        N_CLASSES,
+            'random_state':     42,
+            'verbosity':        0,
+            'max_depth':        trial.suggest_int('max_depth', 3, 8),
+            'learning_rate':    trial.suggest_float('learning_rate', 0.01, 0.3, log=True),
+            'n_estimators':     trial.suggest_int('n_estimators', 100, 1000),
+            'subsample':        trial.suggest_float('subsample', 0.6, 1.0),
+            'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
+            'min_child_weight': trial.suggest_int('min_child_weight', 1, 10),
+            'gamma':            trial.suggest_float('gamma', 0.0, 1.0),
+            'reg_alpha':        trial.suggest_float('reg_alpha', 0.0, 1.0),
+            'reg_lambda':       trial.suggest_float('reg_lambda', 0.5, 3.0),
+        }
+        model = xgb.XGBClassifier(**params, early_stopping_rounds=30)
+        model.fit(
+            X_train, y_train,
+            sample_weight=weights_train,
+            eval_set=[(X_val, y_val)],
+            verbose=False,
+        )
+        y_val_pred = model.predict(X_val)
+        return f1_score(y_val, y_val_pred, average='macro', zero_division=0)
+
+    print(f"\nRunning Optuna hyperparameter search ({n_trials} trials)...")
+    study = optuna.create_study(direction='maximize')
+    study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
+
+    print(f"\nBest validation macro F1: {study.best_value:.4f}")
+    print("Best hyperparameters:")
+    for k, v in study.best_params.items():
+        print(f"  {k}: {v}")
+
+    return study.best_params
+
+
+def train_model(X_train, y_train, weights_train, X_val=None, y_val=None, **xgb_params):
     """
     Train XGBoost classifier with sample weights.
-    
+
     Args:
         X_train: Training features
         y_train: Training labels
-        weights_train: Sample weights (confidence scores)
-        **xgb_params: Additional XGBoost parameters
-        
+        weights_train: Combined sample weights (class balance × confidence)
+        X_val, y_val: Optional validation data for early stopping
+        **xgb_params: XGBoost parameters (e.g. from tune_hyperparameters)
+
     Returns:
         Trained model
     """
-    # Default parameters
+    # Default parameters (overridden by xgb_params)
     default_params = {
-        'objective': 'binary:logistic',
+        'objective': 'multi:softprob',
+        'num_class': N_CLASSES,
         'max_depth': 6,
         'learning_rate': 0.1,
         'n_estimators': 100,
@@ -135,20 +213,27 @@ def train_model(X_train, y_train, weights_train, **xgb_params):
         'random_state': 42,
         'verbosity': 1,
     }
-    
-    # Update with custom parameters
     default_params.update(xgb_params)
-    
+
     print(f"\nTraining XGBoost model with parameters:")
     for k, v in default_params.items():
         print(f"  {k}: {v}")
-    
+
+    if X_val is not None and y_val is not None:
+        default_params['early_stopping_rounds'] = 30
+
     model = xgb.XGBClassifier(**default_params)
-    
-    # Train with sample weights
+
     print(f"\nTraining on {len(X_train)} samples...")
-    model.fit(X_train, y_train, sample_weight=weights_train, verbose=True)
-    
+    fit_kwargs = {'sample_weight': weights_train, 'verbose': True}
+    if X_val is not None and y_val is not None:
+        fit_kwargs['eval_set'] = [(X_val, y_val)]
+
+    model.fit(X_train, y_train, **fit_kwargs)
+
+    if X_val is not None:
+        print(f"Best iteration (early stopping): {model.best_iteration}")
+
     return model
 
 
@@ -180,102 +265,46 @@ def evaluate_model(
     y_train_pred = model.predict(X_train)
     y_val_pred = model.predict(X_val)
     y_test_pred = model.predict(X_test)
-    
-    # Probabilities for ROC curve
-    y_train_proba = model.predict_proba(X_train)[:, 1]
-    y_val_proba = model.predict_proba(X_val)[:, 1]
-    y_test_proba = model.predict_proba(X_test)[:, 1]
-    
+
+    # Full probability matrix (n_samples × 3) for multi-class ROC
+    y_train_proba = model.predict_proba(X_train)
+    y_val_proba = model.predict_proba(X_val)
+    y_test_proba = model.predict_proba(X_test)
+
     print("\n" + "="*70)
     print("MODEL EVALUATION")
     print("="*70)
-    
+
     results = {}
-    
-    # Training metrics
-    print(f"\n--- TRAINING SET ---")
-    train_acc = accuracy_score(y_train, y_train_pred, sample_weight=weights_train)
-    train_prec = precision_score(y_train, y_train_pred, sample_weight=weights_train)
-    train_rec = recall_score(y_train, y_train_pred, sample_weight=weights_train)
-    train_f1 = f1_score(y_train, y_train_pred, sample_weight=weights_train)
-    train_auc = roc_auc_score(y_train, y_train_proba, sample_weight=weights_train)
-    
-    print(f"Accuracy:  {train_acc:.4f}")
-    print(f"Precision: {train_prec:.4f}")
-    print(f"Recall:    {train_rec:.4f}")
-    print(f"F1-Score:  {train_f1:.4f}")
-    print(f"ROC-AUC:   {train_auc:.4f}")
-    
-    results['train'] = {
-        'accuracy': train_acc,
-        'precision': train_prec,
-        'recall': train_rec,
-        'f1': train_f1,
-        'auc': train_auc,
-    }
-    
-    # Validation metrics
-    print(f"\n--- VALIDATION SET ---")
-    val_acc = accuracy_score(y_val, y_val_pred, sample_weight=weights_val)
-    val_prec = precision_score(y_val, y_val_pred, sample_weight=weights_val)
-    val_rec = recall_score(y_val, y_val_pred, sample_weight=weights_val)
-    val_f1 = f1_score(y_val, y_val_pred, sample_weight=weights_val)
-    val_auc = roc_auc_score(y_val, y_val_proba, sample_weight=weights_val)
-    
-    print(f"Accuracy:  {val_acc:.4f}")
-    print(f"Precision: {val_prec:.4f}")
-    print(f"Recall:    {val_rec:.4f}")
-    print(f"F1-Score:  {val_f1:.4f}")
-    print(f"ROC-AUC:   {val_auc:.4f}")
-    
-    results['validation'] = {
-        'accuracy': val_acc,
-        'precision': val_prec,
-        'recall': val_rec,
-        'f1': val_f1,
-        'auc': val_auc,
-    }
 
-    # Test metrics
-    print(f"\n--- TEST SET ---")
-    test_acc = accuracy_score(y_test, y_test_pred, sample_weight=weights_test)
-    test_prec = precision_score(y_test, y_test_pred, sample_weight=weights_test)
-    test_rec = recall_score(y_test, y_test_pred, sample_weight=weights_test)
-    test_f1 = f1_score(y_test, y_test_pred, sample_weight=weights_test)
-    test_auc = roc_auc_score(y_test, y_test_proba, sample_weight=weights_test)
+    def _print_metrics(split_name, y_true, y_pred, y_proba, weights):
+        acc  = accuracy_score(y_true, y_pred, sample_weight=weights)
+        prec = precision_score(y_true, y_pred, average='macro', sample_weight=weights, zero_division=0)
+        rec  = recall_score(y_true, y_pred, average='macro', sample_weight=weights, zero_division=0)
+        f1   = f1_score(y_true, y_pred, average='macro', sample_weight=weights, zero_division=0)
+        auc_score = roc_auc_score(y_true, y_proba, multi_class='ovr', average='macro', sample_weight=weights)
+        print(f"\n--- {split_name} ---")
+        print(f"Accuracy:        {acc:.4f}")
+        print(f"Precision (mac): {prec:.4f}")
+        print(f"Recall    (mac): {rec:.4f}")
+        print(f"F1-Score  (mac): {f1:.4f}")
+        print(f"ROC-AUC   (ovr): {auc_score:.4f}")
+        return {'accuracy': acc, 'precision': prec, 'recall': rec, 'f1': f1, 'auc': auc_score}
 
-    print(f"Accuracy:  {test_acc:.4f}")
-    print(f"Precision: {test_prec:.4f}")
-    print(f"Recall:    {test_rec:.4f}")
-    print(f"F1-Score:  {test_f1:.4f}")
-    print(f"ROC-AUC:   {test_auc:.4f}")
+    results['train']      = _print_metrics('TRAINING SET',   y_train, y_train_pred, y_train_proba, weights_train)
+    results['validation'] = _print_metrics('VALIDATION SET', y_val,   y_val_pred,   y_val_proba,   weights_val)
+    results['test']       = _print_metrics('TEST SET',       y_test,  y_test_pred,  y_test_proba,  weights_test)
 
-    results['test'] = {
-        'accuracy': test_acc,
-        'precision': test_prec,
-        'recall': test_rec,
-        'f1': test_f1,
-        'auc': test_auc,
-    }
-    
     # Confusion matrices
-    print(f"\n--- CONFUSION MATRIX ---")
+    print(f"\n--- CONFUSION MATRICES (rows=True, cols=Predicted) ---")
     train_cm = confusion_matrix(y_train, y_train_pred)
-    val_cm = confusion_matrix(y_val, y_val_pred)
-    test_cm = confusion_matrix(y_test, y_test_pred)
-    
-    print(f"\nTraining set:")
-    print(f"  TN={train_cm[0,0]}, FP={train_cm[0,1]}")
-    print(f"  FN={train_cm[1,0]}, TP={train_cm[1,1]}")
-    
-    print(f"\nValidation set:")
-    print(f"  TN={val_cm[0,0]}, FP={val_cm[0,1]}")
-    print(f"  FN={val_cm[1,0]}, TP={val_cm[1,1]}")
+    val_cm   = confusion_matrix(y_val,   y_val_pred)
+    test_cm  = confusion_matrix(y_test,  y_test_pred)
 
-    print(f"\nTest set:")
-    print(f"  TN={test_cm[0,0]}, FP={test_cm[0,1]}")
-    print(f"  FN={test_cm[1,0]}, TP={test_cm[1,1]}")
-    
+    for split_name, cm in [('Training', train_cm), ('Validation', val_cm), ('Test', test_cm)]:
+        print(f"\n{split_name} set ({' / '.join(CLASS_NAMES)}):")
+        print(cm)
+
     results['confusion_matrices'] = {'train': train_cm, 'validation': val_cm, 'test': test_cm}
     results['predictions'] = {
         'train': y_train_pred,
@@ -285,9 +314,9 @@ def evaluate_model(
         'val_proba': y_val_proba,
         'test_proba': y_test_proba,
     }
-    
+
     print("\n" + "="*70)
-    
+
     return results
 
 
@@ -313,27 +342,31 @@ def plot_feature_importance(model, feature_names=['intraday_range', 'volume_chan
 
 
 def plot_roc_curves(y_train, y_val, y_test, y_train_proba, y_val_proba, y_test_proba):
-    """Plot ROC curves for training, validation, and test sets."""
-    fpr_train, tpr_train, _ = roc_curve(y_train, y_train_proba)
-    fpr_val, tpr_val, _ = roc_curve(y_val, y_val_proba)
-    
-    fpr_test, tpr_test, _ = roc_curve(y_test, y_test_proba)
+    """Plot One-vs-Rest ROC curves for all 3 classes across train / val / test splits."""
+    colors = ['steelblue', 'darkorange', 'crimson']
+    splits = [
+        ('Training',   y_train, y_train_proba),
+        ('Validation', y_val,   y_val_proba),
+        ('Test',       y_test,  y_test_proba),
+    ]
 
-    auc_train = auc(fpr_train, tpr_train)
-    auc_val = auc(fpr_val, tpr_val)
-    auc_test = auc(fpr_test, tpr_test)
-    
-    plt.figure(figsize=(10, 8))
-    plt.plot(fpr_train, tpr_train, label=f'Training (AUC = {auc_train:.4f})', linewidth=2)
-    plt.plot(fpr_val, tpr_val, label=f'Validation (AUC = {auc_val:.4f})', linewidth=2)
-    plt.plot(fpr_test, tpr_test, label=f'Test (AUC = {auc_test:.4f})', linewidth=2)
-    plt.plot([0, 1], [0, 1], 'k--', label='Random Classifier', linewidth=1)
-    
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title('ROC Curves - Binary Volatility Classification')
-    plt.legend(loc='lower right')
-    plt.grid(True, alpha=0.3)
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+
+    for ax, (split_name, y_true, y_proba) in zip(axes, splits):
+        y_bin = label_binarize(y_true, classes=[0, 1, 2])
+        for cls_idx, (cls_name, color) in enumerate(zip(CLASS_NAMES, colors)):
+            fpr, tpr, _ = roc_curve(y_bin[:, cls_idx], y_proba[:, cls_idx])
+            auc_score = auc(fpr, tpr)
+            ax.plot(fpr, tpr, color=color, linewidth=2,
+                    label=f'{cls_name} (AUC={auc_score:.3f})')
+        ax.plot([0, 1], [0, 1], 'k--', linewidth=1)
+        ax.set_xlabel('False Positive Rate')
+        ax.set_ylabel('True Positive Rate')
+        ax.set_title(f'ROC Curves — {split_name}')
+        ax.legend(loc='lower right')
+        ax.grid(True, alpha=0.3)
+
+    fig.suptitle('One-vs-Rest ROC Curves — Multi-class Volatility Classification')
     plt.tight_layout()
     plt.savefig('roc_curves.png', dpi=300)
     print("Saved: roc_curves.png")
@@ -341,25 +374,26 @@ def plot_roc_curves(y_train, y_val, y_test, y_train_proba, y_val_proba, y_test_p
 
 
 def plot_confusion_matrix(cm, title='Confusion Matrix'):
-    """Plot confusion matrix."""
-    plt.figure(figsize=(8, 6))
-    im = plt.imshow(cm, cmap=plt.cm.Blues)
-    
-    # Labels
-    classes = ['Low Volatility', 'High Volatility']
-    tick_marks = np.arange(len(classes))
-    plt.xticks(tick_marks, classes)
-    plt.yticks(tick_marks, classes)
-    
-    # Annotations
-    for i in range(len(classes)):
-        for j in range(len(classes)):
-            plt.text(j, i, str(cm[i, j]), ha='center', va='center', color='white' if cm[i, j] > cm.max() / 2 else 'black')
-    
-    plt.ylabel('True Label')
-    plt.xlabel('Predicted Label')
-    plt.title(title)
-    plt.colorbar(im)
+    """Plot 3-class confusion matrix."""
+    fig, ax = plt.subplots(figsize=(8, 7))
+    im = ax.imshow(cm, cmap=plt.cm.Blues)
+
+    tick_marks = np.arange(N_CLASSES)
+    ax.set_xticks(tick_marks)
+    ax.set_yticks(tick_marks)
+    ax.set_xticklabels(CLASS_NAMES)
+    ax.set_yticklabels(CLASS_NAMES)
+
+    thresh = cm.max() / 2
+    for i in range(N_CLASSES):
+        for j in range(N_CLASSES):
+            ax.text(j, i, str(cm[i, j]), ha='center', va='center',
+                    color='white' if cm[i, j] > thresh else 'black')
+
+    ax.set_ylabel('True Label')
+    ax.set_xlabel('Predicted Label')
+    ax.set_title(title)
+    fig.colorbar(im, ax=ax)
     plt.tight_layout()
     return plt
 
@@ -367,7 +401,7 @@ def plot_confusion_matrix(cm, title='Confusion Matrix'):
 def main():
     """Main training pipeline."""
     print("="*70)
-    print("XGBoost Binary Volatility Classification")
+    print("XGBoost Multi-class Volatility Classification (LOW / MEDIUM / HIGH)")
     print("="*70)
     
     # Load data
@@ -385,17 +419,27 @@ def main():
         weights_val,
         weights_test,
     ) = prepare_data(data, val_size=0.1, test_size=0.1)
-    
-    # Train model
-    model = train_model(
-        X_train, y_train, weights_train,
-        max_depth=6,
-        learning_rate=0.1,
-        n_estimators=100,
-        subsample=0.8,
-        colsample_bytree=0.8,
+
+    # Combine class balance weights with confidence scores for training
+    # (val/test weights stay as confidence-only for clean evaluation reporting)
+    weights_train_combined = compute_combined_weights(y_train, weights_train)
+    print(f"\nCombined training weights: mean={weights_train_combined.mean():.4f}, "
+          f"min={weights_train_combined.min():.4f}, max={weights_train_combined.max():.4f}")
+
+    # Hyperparameter tuning on validation set
+    best_params = tune_hyperparameters(
+        X_train, y_train, weights_train_combined,
+        X_val, y_val,
+        n_trials=100,
     )
-    
+
+    # Train final model with best params and early stopping
+    model = train_model(
+        X_train, y_train, weights_train_combined,
+        X_val=X_val, y_val=y_val,
+        **best_params,
+    )
+
     # Evaluate model
     results = evaluate_model(
         model,
@@ -428,7 +472,7 @@ def main():
     # Feature importance
     plot_feature_importance(model)
     
-    # ROC curves
+    # ROC curves (One-vs-Rest, one subplot per split)
     plot_roc_curves(
         y_train,
         y_val,

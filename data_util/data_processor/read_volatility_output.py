@@ -13,7 +13,7 @@ class VolatilityRecord:
     date: 'pd.Timestamp'
     open_price: float
     symbol: str
-    is_high_volatility: bool
+    volatility_level: int  # 0=LOW, 1=MEDIUM, 2=HIGH
     relative_amplitude_ratio: float
     z_score: float
     confidence: float
@@ -50,28 +50,34 @@ def read_and_display_sample():
     # Display first 10 records
     print("First 10 records:")
     print("=" * 120)
-    print(f"{'Date':<12} {'Open':<10} {'Symbol':<10} {'Relative Ratio':<16} {'Z-Score':<12} {'High Vol':<12} {'Confidence':<12}")
+    level_names = {0: 'LOW', 1: 'MEDIUM', 2: 'HIGH'}
+    print(f"{'Date':<12} {'Open':<10} {'Symbol':<10} {'Relative Ratio':<16} {'Z-Score':<12} {'Level':<10} {'Confidence':<12}")
     print("=" * 120)
-    
-    for i, record in enumerate(records[:10]):
-        print(f"{str(record.date):<12} {record.open_price:<10.2f} {record.symbol:<10} {record.relative_amplitude_ratio:<16.4f} {record.z_score:<12.4f} {str(record.is_high_volatility):<12} {record.confidence:<12.4f}")
-    
+
+    for record in records[:10]:
+        level_str = level_names.get(int(record.volatility_level), str(record.volatility_level))
+        print(f"{str(record.date):<12} {record.open_price:<10.2f} {record.symbol:<10} {record.relative_amplitude_ratio:<16.4f} {record.z_score:<12.4f} {level_str:<10} {record.confidence:<12.4f}")
+
     print("\n" + "=" * 120)
     print("\nData structure breakdown:")
     print(f"  - date: {type(records[0].date).__name__}")
     print(f"  - open_price: {type(records[0].open_price).__name__}")
     print(f"  - symbol: {type(records[0].symbol).__name__}")
-    print(f"  - is_high_volatility: {type(records[0].is_high_volatility).__name__}")
+    print(f"  - volatility_level: int (0=LOW, 1=MEDIUM, 2=HIGH)")
     print(f"  - relative_amplitude_ratio: {type(records[0].relative_amplitude_ratio).__name__}")
     print(f"  - z_score: {type(records[0].z_score).__name__}")
     print(f"  - confidence: {type(records[0].confidence).__name__}")
-    
+
     # Statistics
-    high_vol_count = sum(1 for r in records if r.is_high_volatility)
+    low_count  = sum(1 for r in records if int(r.volatility_level) == 0)
+    med_count  = sum(1 for r in records if int(r.volatility_level) == 1)
+    high_count = sum(1 for r in records if int(r.volatility_level) == 2)
+    total = len(records)
     print(f"\nStatistics for {records[0].symbol}:")
-    print(f"  - Total records: {len(records)}")
-    print(f"  - High volatility days: {high_vol_count} ({high_vol_count/len(records)*100:.2f}%)")
-    print(f"  - Low volatility days: {len(records) - high_vol_count} ({(len(records)-high_vol_count)/len(records)*100:.2f}%)")
+    print(f"  - Total records:    {total}")
+    print(f"  - LOW  volatility:  {low_count}  ({low_count/total*100:.2f}%)")
+    print(f"  - MED  volatility:  {med_count}  ({med_count/total*100:.2f}%)")
+    print(f"  - HIGH volatility:  {high_count} ({high_count/total*100:.2f}%)")
     print(f"  - Avg relative amplitude ratio: {sum(r.relative_amplitude_ratio for r in records) / len(records):.4f}")
     print(f"  - Avg absolute z-score: {sum(abs(r.z_score) for r in records) / len(records):.4f}")
     
