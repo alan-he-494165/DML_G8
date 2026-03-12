@@ -16,7 +16,29 @@ from typing import List
 # Add parent directory to path to import fetcher module
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
-CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'cache')
+# Define a dummy Ticker_Day class to handle pickle deserialization
+class Ticker_Day:
+    """Dummy class for unpickling Ticker_Day objects without fetcher module"""
+    def __init__(self, symbol=None, date=None, high=None, low=None, open=None, close=None, volume=None):
+        self.symbol = symbol
+        self.date = date if date is not None else []
+        self.high = high if high is not None else []
+        self.low = low if low is not None else []
+        self.open = open if open is not None else []
+        self.close = close if close is not None else []
+        self.volume = volume if volume is not None else []
+
+# Register the dummy class in sys.modules to handle unpickling
+if 'fetcher.fetcher_yf' not in sys.modules:
+    import types
+    fetcher_module = types.ModuleType('fetcher.fetcher_yf')
+    fetcher_module.Ticker_Day = Ticker_Day
+    sys.modules['fetcher.fetcher_yf'] = fetcher_module
+    sys.modules['fetcher'] = types.ModuleType('fetcher')
+    sys.modules['fetcher'].fetcher_yf = fetcher_module
+
+# Cache is at project root level, so go up 3 levels from data_processor
+CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'cache_raw_stock', 'china_stock')
 OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'cache_output')
 
 
@@ -247,6 +269,7 @@ def main():
     # Process all tickers
     print("Processing all tickers from cache...")
     print("-" * 70)
+    print(CACHE_DIR)
     all_records = classifier.process_all_tickers(CACHE_DIR)
     
     print("\n" + "-" * 70)

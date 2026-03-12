@@ -6,6 +6,8 @@ Features:
 - Volume Change Rate: (volume_today - volume_yesterday) / volume_yesterday
 - Intraday Range: (high - low) / close
 - Rolling Historical Volatility: std of daily returns over N days
+- Previous Day News Count: number of news items for the stock on day t-1
+- Previous Day Avg News Sentiment: average sentiment score of news on day t-1
 - Confidence: from volatility classification model (as sample weight)
 
 Output: Training dataset with features and labels for XGBoost
@@ -18,7 +20,8 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Tuple, Optional
+from datetime import datetime, timedelta
 
 # Add parent directory to path for fetcher module
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
@@ -35,7 +38,17 @@ class Ticker_Day:
         self.close = close if close is not None else []
         self.volume = volume if volume is not None else []
 
-# Register the dummy class in sys.modules to handle unpickling
+
+# Define NewsData class for unpickling news data
+@dataclass
+class NewsData:
+    """Data structure for news items"""
+    symbol: str
+    datetime: str
+    sentiment_score: float
+
+
+# Register the dummy classes in sys.modules to handle unpickling
 if 'fetcher.fetcher_yf' not in sys.modules:
     import types
     fetcher_module = types.ModuleType('fetcher.fetcher_yf')
@@ -47,6 +60,7 @@ if 'fetcher.fetcher_yf' not in sys.modules:
 CACHE_DIR = os.path.join('data_for_process', 'cache_raw_stock', 'china_stock')  # Adjust if needed
 CACHE_OUTPUT_DIR = os.path.join('data_for_process', 'cache_output', 'china_stock')  # Adjust if needed
 OUTPUT_DIR = os.path.join('data_for_process', 'xgboost_dataset_china_stock')  # Adjust if needed
+NEWS_DATA_DIR = os.path.join('data_for_process', 'news_daily_stock')  # Directory for daily news data
 
 # Configuration
 ROLLING_WINDOW = 20  # 20-day rolling volatility window
@@ -118,10 +132,71 @@ class XGBoostDatasetCreator:
             print(f"Error loading stock data for {symbol}: {e}")
             return None
     
+    def load_news_data_for_date(self, target_date: pd.Timestamp) -> Optional[List[NewsData]]:
+        """
+        Load news data for a specific date from pickle file
+        
+        Args:
+            target_date: pandas Timestamp object
+            
+        Returns:
+            List of NewsData objects or None if file doesn't exist
+        """
+        year = target_date.year
+        month = f"{target_date.month:02d}"
+        day = f"{target_date.day:02d}"
+        date_str = f"{year}-{month}-{day}"
+        
+        news_file = os.path.join(NEWS_DATA_DIR, str(year), month, f"{date_str}.pkl")
+        
+        if not os.path.exists(news_file):
+            return None
+        
+        try:
+            with open(news_file, 'rb') as f:
+                news_data = pickle.load(f)
+            return news_data
+        except Exception as e:
+            # Silently skip if loading fails
+            return None
+    
+    def calculate_prev_day_news_features(self, symbol: str, target_date: pd.Timestamp) -> Tuple[int, float]:
+        """
+        Calculate news features from the previous day
+        
+        Args:
+            symbol: stock symbol
+            target_date: current date (we look at day t-1)
+            
+        Returns:
+            Tuple of (news_count, avg_sentiment_score)
+            Returns (0, 0) if no news found for previous day
+        """
+        # Get previous day
+        prev_date = target_date - timedelta(days=1)
+        
+        # Load news data for previous day
+        news_list = self.load_news_data_for_date(prev_date)
+        
+        if not news_list:
+            return 0, 0
+        
+        # Filter news for this symbol
+        symbol_news = [item for item in news_list if item.symbol == symbol]
+        
+        if not symbol_news:
+            return 0, 0
+        
+        # Calculate count and average sentiment
+        news_count = len(symbol_news)
+        avg_sentiment = np.mean([item.sentiment_score for item in symbol_news])
+        
+        return news_count, float(avg_sentiment)
+    
     def calculate_features(self, ticker_data, volatility_records: List[VolatilityRecord]) -> pd.DataFrame:
         """
         Calculate features for XGBoost training
-        
+
         Features from day t-1 are used to predict the label on day t.
         This prevents data leakage - we never use today's data to predict today's label.
         
@@ -196,6 +271,14 @@ class XGBoostDatasetCreator:
                     row['rolling_historical_volatility'] = np.nan
             else:
                 row['rolling_historical_volatility'] = np.nan
+            
+            # Feature 4 & 5: Previous day news features (from DAY t-1)
+            # Use news data from previous day to predict today's volatility
+            prev_day_news_count, prev_day_avg_sentiment = self.calculate_prev_day_news_features(
+                ticker_data.symbol, target_date
+            )
+            row['prev_day_news_count'] = prev_day_news_count
+            row['prev_day_avg_news_sentiment'] = prev_day_avg_sentiment
             
             # ===== TARGET: TODAY'S VOLATILITY LABEL (DAY t) =====
             # Label: is_high_volatility (binary: 1 or 0) for TODAY
@@ -350,12 +433,16 @@ def main():
     
     print("DATA LEAKAGE PREVENTION:")
     print("-" * 70)
-    print("Features:  Calculated from day (t-1)")
-    print("Target:    Volatility label for day (t)")
+    print("Features (5 inputs):  Calculated from day (t-1)")
+    print("  1. Intraday Range")
+    print("  2. Volume Change Rate")
+    print("  3. Rolling Historical Volatility")
+    print("  4. Previous Day News Count")
+    print("  5. Previous Day Avg News Sentiment")
+    print("Target:               Volatility label for day (t)")
     print("")
-    print("Example: Use yesterday's data to predict today's volatility")
-    print("         This avoids using today's price movements to predict")
-    print("         today's volatility (which would be data leakage)")
+    print("Note: Previous day news uses data from day (t-1),")
+    print("      NOT from the current day (t) to prevent data leakage")
     print("-" * 70 + "\n")
     
     # Initialize creator
@@ -386,17 +473,23 @@ def main():
     # For volume_change_rate, fill with 0 if NaN (since not always available)
     dataset['volume_change_rate'].fillna(0, inplace=True)
     
+    # News features already have 0 as default for missing data (no need to fill)
+    
     # Generate statistics
     creator.generate_summary_statistics(dataset)
     
     # Keep required features plus target, confidence, symbol, and date
+    # 5 input features: intraday_range, volume_change_rate, rolling_historical_volatility, 
+    #                   prev_day_news_count, prev_day_avg_news_sentiment
     dataset = dataset[
         [
             'symbol',
             'date',
-            'rolling_historical_volatility',
-            'volume_change_rate',
             'intraday_range',
+            'volume_change_rate',
+            'rolling_historical_volatility',
+            'prev_day_news_count',
+            'prev_day_avg_news_sentiment',
             'target',
             'confidence',
         ]
@@ -413,9 +506,11 @@ def main():
     sample_cols = [
         'symbol',
         'date',
-        'rolling_historical_volatility',
-        'volume_change_rate',
         'intraday_range',
+        'volume_change_rate',
+        'rolling_historical_volatility',
+        'prev_day_news_count',
+        'prev_day_avg_news_sentiment',
         'target',
         'confidence',
     ]

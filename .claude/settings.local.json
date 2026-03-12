@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "Bash(\"C:\\\\Users\\\\Alan He\\\\Desktop\\\\DML_G8\\\\.venv\\\\Scripts\\\\python.exe\":*)"
+    ]
+  }
+}
