@@ -7,6 +7,10 @@ import pandas as pd
 from pathlib import Path
 from dataclasses import dataclass
 
+# Output directory: DML_G8/cache_output_trinary
+OUTPUT_DIR = Path(__file__).resolve().parents[2] / 'cache_output_trinary'
+
+
 @dataclass
 class VolatilityRecord:
     """Data structure for volatility classification output"""
@@ -17,8 +21,6 @@ class VolatilityRecord:
     relative_amplitude_ratio: float
     z_score: float
     confidence: float
-
-OUTPUT_DIR = 'cache_output'
 
 def read_and_display_sample():
     """Load and display sample data from cached output"""

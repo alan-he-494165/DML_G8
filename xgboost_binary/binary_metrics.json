@@ -1,0 +1,36 @@
+{
+  "dataset_path": "C:\\Users\\Alan He\\Desktop\\DML_G8\\xgboost_dataset\\xgboost_training_dataset.pkl",
+  "features": [
+    "intraday_range",
+    "volume_change_rate",
+    "rolling_historical_volatility"
+  ],
+  "split_type": "chronological",
+  "train_samples": 1210249,
+  "validation_samples": 167925,
+  "test_samples": 162515,
+  "params": {
+    "objective": "binary:logistic",
+    "max_depth": 6,
+    "learning_rate": 0.1,
+    "n_estimators": 100,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "random_state": 42,
+    "verbosity": 0,
+    "eval_metric": "logloss"
+  },
+  "model_test": {
+    "accuracy": 0.7086053595052765,
+    "precision": 0.7036398170400806,
+    "recall": 0.8123377785733464,
+    "f1": 0.7540918909936856,
+    "auc": 0.7894356885964352
+  },
+  "persistence_test": {
+    "accuracy": 0.6903178168169092,
+    "precision": 0.7174271271739372,
+    "recall": 0.7208784569945405,
+    "f1": 0.7191486512126252
+  }
+}

@@ -13,10 +13,10 @@ This system classifies daily stock volatility into three levels: LOW, MEDIUM, or
 **Purpose**: Processes all cached stock data and generates trinary volatility labels
 
 **Input**:
-- Source: `cache/` directory containing pickle files of Ticker_Day objects
+- Source: `../cache_raw_stock/china_stock/` directory containing pickle files of Ticker_Day objects
 
 **Output**:
-- Destination: `cache_output/` directory
+- Destination: `../cache_output_trinary/` directory
 - Format: pickle files (one per stock)
 - Each file contains a list of `VolatilityRecord` objects
 
@@ -79,10 +79,10 @@ python data_processor/volatility_classifier.py
 ```
 
 This will:
-- Load all stock pickle files from `cache/`
+- Load all stock pickle files from `../cache_raw_stock/china_stock/`
 - Calculate daily volatility metrics
 - Apply trinary classification rules
-- Save results to `cache_output/`
+- Save results to `../cache_output_trinary/`
 - Generate summary CSV report
 
 **Optional: Use different confidence method**
@@ -121,7 +121,7 @@ import pickle
 from pathlib import Path
 
 # Load single stock
-with open('cache_output/AAPL.pkl', 'rb') as f:
+with open('../cache_output_trinary/AAPL.pkl', 'rb') as f:
     records = pickle.load(f)
 
 # Iterate through records
@@ -138,7 +138,7 @@ for record in records:
 ```python
 import pandas as pd
 
-summary_df = pd.read_csv('cache_output/volatility_classification_summary.csv')
+summary_df = pd.read_csv('../cache_output_trinary/volatility_classification_summary.csv')
 print(summary_df.head())
 ```
 
@@ -146,25 +146,30 @@ print(summary_df.head())
 
 ```
 DML_G8/
-├── cache/
-│   ├── 000001.pkl
-│   ├── AAPL.pkl
-│   └── ...
+├── cache_raw_stock/
+│   └── china_stock/
+│       ├── 000001.pkl
+│       ├── 600519.pkl
+│       └── ...
 │
-├── cache_output/
+├── cache_output_trinary/
 │   ├── 000001.pkl (VolatilityRecord list)
-│   ├── AAPL.pkl (VolatilityRecord list)
+│   ├── 600519.pkl (VolatilityRecord list)
 │   ├── volatility_classification_summary.csv
 │   └── ...
 │
-├── data_processor/
-│   ├── volatility_classifier.py (Main processor)
-│   ├── read_volatility_output.py (Demo reader)
-│   └── create_xgboost_dataset.py (XGBoost dataset creator)
+├── data_util_trinary/
+│   ├── data_processor/
+│   │   ├── volatility_classifier.py (Main processor)
+│   │   ├── read_volatility_output.py (Demo reader)
+│   │   └── create_xgboost_dataset.py (XGBoost dataset creator)
+│   ├── volatility_data_analysis/
+│   │   ├── volatility_analysis.py
+│   │   └── volatility_indicators_analysis.py
+│   └── VOLATILITY_CLASSIFICATION_README.md
 │
-└── volatility_data_analysis/
-    ├── volatility_analysis.py
-    └── volatility_indicators_analysis.py
+└── xgboost_dataset_china_stock/
+    └── trinary_xgboost_training_dataset.pkl
 ```
 
 ## Configuration

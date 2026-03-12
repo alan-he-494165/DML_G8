@@ -3,7 +3,7 @@ Volatility Indicators Analysis and Recommendations
 ====================================================
 
 This script analyzes different volatility indicators for daily stock movements
-and recommends the best metric for a binary volatility classification model.
+and recommends the best metric for a trinary volatility classification model (LOW=0, MEDIUM=1, HIGH=2).
 """
 
 import pandas as pd
@@ -12,32 +12,33 @@ from pathlib import Path
 import pickle
 import matplotlib.pyplot as plt
 
-CACHE_DIR = 'cache'
+# Cache directory: DML_G8/cache_raw_stock/china_stock
+CACHE_DIR = Path(__file__).resolve().parents[2] / 'cache_raw_stock' / 'china_stock'
 
 def analyze_daily_volatility_indicators():
     """Analyze different daily volatility indicators"""
     
     print("\n" + "="*70)
-    print("VOLATILITY INDICATOR ANALYSIS FOR BINARY CLASSIFICATION")
+    print("VOLATILITY INDICATOR ANALYSIS FOR TRINARY CLASSIFICATION")
     print("="*70)
-    
+
     print("\n" + "OPTION 1: ABSOLUTE AMPLITUDE (High - Low)".center(70, "-"))
     print("""
 Pros:
   - Simplest to calculate
   - Directly represents price range
   - Easy to understand
-  
+
 Cons:
   - Affected by absolute price level
   - High-price stocks naturally have larger amplitudes
   - Not comparable across different stocks
-  
+
 Example:
   - Stock A (price ~$300): High-Low = $50 (is this large?)
   - Stock B (price ~$50):  High-Low = $10 (is this large?)
-  
-Recommendation: NOT SUITABLE for binary model without normalization
+
+Recommendation: NOT SUITABLE for trinary model without normalization
 """)
 
     print("\n" + "OPTION 2: RELATIVE AMPLITUDE RATIO (High-Low) / Close".center(70, "-"))

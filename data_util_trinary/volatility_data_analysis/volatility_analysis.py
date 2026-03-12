@@ -12,7 +12,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-CACHE_DIR = 'data_for_process/cache_raw_stock'
+# Cache directory: DML_G8/cache_raw_stock/china_stock
+CACHE_DIR = PROJECT_ROOT / 'cache_raw_stock' / 'china_stock'
 
 def load_all_tickers():
     """Load all cached ticker data"""

@@ -91,8 +91,8 @@ def finbert_sentiment(text: str, tokenizer, model, device) -> float:
 def main() -> None:
     base_dir = Path(__file__).resolve().parents[2]
     mapping_path = base_dir / 'process_news' / 'match_stock_name' / 'stock_name_mapping.pkl'
-    raw_news_dir = base_dir.parent / 'data_for_process' / 'raw_news' / '2025'
-    output_base = base_dir.parent / 'data_for_process' / 'news_daily_stock' / '2025'
+    raw_news_dir = base_dir.parent / 'raw_news' / '2025'
+    output_base = base_dir.parent / 'news_daily_stock' / '2025'
 
     symbol_to_names = load_mapping(mapping_path)
     name_to_symbol, sorted_names = build_name_lookup(symbol_to_names)

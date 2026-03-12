@@ -41,8 +41,11 @@ if 'fetcher.fetcher_yf' not in sys.modules:
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 # Cache is at project root level, so go up 3 levels from data_processor
+# Raw stock data: DML_G8/cache_raw_stock/china_stock
 CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'cache_raw_stock', 'china_stock')
-OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'cache_output_trinary')
+
+# Output directory: DML_G8/cache_output_trinary
+OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'cache_output_trinary')
 
 
 @dataclass

@@ -1,6 +1,6 @@
 """
 XGBoost Training Dataset Creator
-Creates training features from stock data for binary volatility prediction
+Creates training features from stock data for trinary volatility prediction (0=LOW, 1=MEDIUM, 2=HIGH)
 
 Features:
 - Volume Change Rate: (volume_today - volume_yesterday) / volume_yesterday
@@ -10,7 +10,7 @@ Features:
 - Previous Day Avg News Sentiment: average sentiment score of news on day t-1
 - Confidence: from volatility classification model (as sample weight)
 
-Output: Training dataset with features and labels for XGBoost
+Output: Training dataset with features and labels for XGBoost (multi-class classification)
 """
 
 import sys
@@ -57,10 +57,28 @@ if 'fetcher.fetcher_yf' not in sys.modules:
     sys.modules['fetcher'] = types.ModuleType('fetcher')
     sys.modules['fetcher'].fetcher_yf = fetcher_module
 
-CACHE_DIR = os.path.join('data_for_process', 'cache_raw_stock', 'china_stock')  # Adjust if needed
-CACHE_OUTPUT_DIR = os.path.join('data_for_process', 'cache_output', 'china_stock')  # Adjust if needed
-OUTPUT_DIR = os.path.join('data_for_process', 'xgboost_dataset_china_stock')  # Adjust if needed
-NEWS_DATA_DIR = os.path.join('data_for_process', 'news_daily_stock')  # Directory for daily news data
+# Directory paths (relative to data_processor directory)
+# Raw stock data: DML_G8/cache_raw_stock/china_stock
+CACHE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'cache_raw_stock', 'china_stock')
+
+# Volatility classification output (prefer project root path; fallback to local data_util_trinary cache)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+PRIMARY_CACHE_OUTPUT_DIR = os.path.join(PROJECT_ROOT, 'cache_output_trinary')
+FALLBACK_CACHE_OUTPUT_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'cache_output_trinary')
+
+
+def _has_pkl_files(path: str) -> bool:
+    """Return True if directory exists and has at least one .pkl file."""
+    return os.path.isdir(path) and any(Path(path).glob('*.pkl'))
+
+
+CACHE_OUTPUT_DIR = PRIMARY_CACHE_OUTPUT_DIR if _has_pkl_files(PRIMARY_CACHE_OUTPUT_DIR) else FALLBACK_CACHE_OUTPUT_DIR
+
+# XGBoost dataset output: DML_G8/xgboost_dataset_china_stock
+OUTPUT_DIR = os.path.join(PROJECT_ROOT, 'xgboost_dataset_china_stock')
+
+# News data: DML_G8/news_daily_stock
+NEWS_DATA_DIR = os.path.join(PROJECT_ROOT, 'news_daily_stock')
 
 # Configuration
 ROLLING_WINDOW = 20  # 20-day rolling volatility window
@@ -338,7 +356,7 @@ class XGBoostDatasetCreator:
                 if stock_features is not None and len(stock_features) > MIN_VALID_RECORDS:
                     all_data.append(stock_features)
                     successful += 1
-                    print(f"[{idx+1}/{total_files}] {symbol}: {len(stock_features)} records ✓")
+                    print(f"[{idx+1}/{total_files}] {symbol}: {len(stock_features)} records OK")
                 else:
                     if stock_features is not None:
                         print(f"[{idx+1}/{total_files}] {symbol}: insufficient records ({len(stock_features)})")
@@ -369,7 +387,7 @@ class XGBoostDatasetCreator:
         os.makedirs(OUTPUT_DIR, exist_ok=True)
 
         # Save as pickle (more efficient for large datasets)
-        pkl_path = os.path.join(OUTPUT_DIR, 'xgboost_training_dataset.pkl')
+        pkl_path = os.path.join(OUTPUT_DIR, 'trinary_xgboost_training_dataset.pkl')
         with open(pkl_path, 'wb') as f:
             pickle.dump(dataset, f)
         print(f"Saved: {pkl_path}")
@@ -472,7 +490,7 @@ def main():
     print(f"Final dataset size: {final_rows} samples\n")
     
     # For volume_change_rate, fill with 0 if NaN (since not always available)
-    dataset['volume_change_rate'].fillna(0, inplace=True)
+    dataset['volume_change_rate'] = dataset['volume_change_rate'].fillna(0)
     
     # News features already have 0 as default for missing data (no need to fill)
     
@@ -522,9 +540,9 @@ def main():
     print("="*70 + "\n")
     
     print("Output Files:")
-    print(f"  1. {OUTPUT_DIR}/xgboost_training_dataset.pkl")
+    print(f"  1. {OUTPUT_DIR}/trinary_xgboost_training_dataset.pkl")
     print("\nUsage in xgb.py:")
-    print("  - Load PKL: pd.read_pickle('data_for_process/xgboost_training_dataset.pkl')")
+    print("  - Load PKL: pd.read_pickle('../xgboost_dataset_china_stock/trinary_xgboost_training_dataset.pkl')")
     print("  - Train with weights: model.fit(X, y, sample_weight=weights)")
 
 
